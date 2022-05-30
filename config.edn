@@ -121,40 +121,21 @@
 
     :collapsed? false}       
    
-{:title [:h3 "🔥 Overdue"]
-      :query [:find (pull ?block [*])
-              :in $ ?start ?next
-              :where
-                (or-join [?block, ?d]
-                  [?block :block/scheduled ?d]
-                  [?block :block/deadline ?d]
-                  (and
-                     [?block :block/ref-pages ?rp]
-                     [?rp :block/journal-day ?d] 
-                   )
-                )
-				(or-join [?block]
-                   (and
-                     [?block :block/marker ?marker]
-                     [(contains? #{"NOW" "TODO" "LATER" "DOING"} ?marker)]
-                   )
-                   (and 
-                   		(not [?block :block/marker _])
-                    	(or
-                           [?block :block/scheduled ?d]
-                           [?block :block/deadline ?d]
-                         )
-                    )
-                )
+{:title "🔥 Overdue"
+ :query [:find (pull ?b [*])
+         :in $ ?today
+         :where
+         [?p :block/journal?]
+         [?b :block/page ?p] 
+         (not (task ?b #{"DONE" "CANCELED"})) 
+         (or-join [?b ?today] 
+              (and [?b :block/scheduled ?d]  [(< ?d ?today)] )
+              (and [?b :block/deadline ?d]   [(< ?d ?today)] )
+         )
+       ]
+       :inputs [:today]
+},   
 
-              [(> ?d ?start)]
-              [(< ?d ?next)]]
-              :result-transform (fn [result]
-                        (sort-by (fn [h]
-                                   (or (get h :block/scheduled) (get h :block/deadline))) result))
-      :inputs [:90d-before :0d-before]
-      :collapsed? false},
-  
    
  {:title "⏰ NOW"
     :query            [:find (pull ?b [*])
