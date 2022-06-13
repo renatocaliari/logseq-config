@@ -22,9 +22,10 @@
 
  ;; Whether to enable hover on tooltip preview feature
  ;; Default is true, you can also toggle this via setting page
- :ui/enable-tooltip? true
+ :ui/enable-tooltip? false
 
- :feature/enable-block-timestamps? false
+ :feature/enable-block-timestamps? true
+ :feature/disable-scheduled-and-deadline-query? true
 
  ;; Specify a custom CSS import
  ;; This option take precedence over your local `logseq/custom.css` file
@@ -118,36 +119,57 @@
             :where
               [?h :block/marker ?marker] 
               [(contains? #{"WAITING"} ?marker)]]
-
-    :collapsed? false}       
+    :collapsed? false},       
    
-{:title "🔥 Overdue"
- :query [:find (pull ?b [*])
-         :in $ ?today
-         :where
-         [?p :block/journal?]
-         [?b :block/page ?p] 
-         (not (task ?b #{"DONE" "CANCELED"})) 
-         (or-join [?b ?today] 
-              (and [?b :block/scheduled ?d]  [(< ?d ?today)] )
-              (and [?b :block/deadline ?d]   [(< ?d ?today)] )
-         )
-       ]
-       :inputs [:today]
-},   
+ {:title [:h3 "🔥 Overdue"]
+      :query [:find (pull ?block [*])
+              :in $ ?start ?next
+              :where
+                (or-join [?block, ?d]
+                  [?block :block/scheduled ?d]
+                  [?block :block/deadline ?d]
+                  (and
+                     [?block :block/ref-pages ?rp]
+                     [?rp :block/journal-day ?d] 
+                   )
+                )
+				(or-join [?block]
+                   (and
+                     [?block :block/marker ?marker]
+                     [(contains? #{"NOW" "TODO" "LATER" "DOING"} ?marker)]
+                   )
+                   (and 
+                   		(not [?block :block/marker _])
+                    	(or
+                           [?block :block/scheduled ?d]
+                           [?block :block/deadline ?d]
+                         )
+                    )
+                )
 
+              [(> ?d ?start)]
+              [(< ?d ?next)]]
+              :result-transform (fn [result]
+                        (sort-by (fn [h]
+                                   (or (get h :block/scheduled) (get h :block/deadline))) result))
+      :inputs [:90d-before :0d-before]
+      :collapsed? false},
    
+
  {:title "⏰ NOW"
-    :query            [:find (pull ?b [*])
-                       :where
+    :query [:find (pull ?b [*])
+             :in $ ?today
+	:where
                        [?b :block/marker ?marker]
             [(contains? #{"NOW" "TODO" "DOING"} ?marker)]]
-    :result-transform (fn [result]
-                        (sort-by (fn [b]
-                                   (get b :block/priority "Z")) result))
-    :collapsed?       false}   ,
+      :result-transform
+        (fn [result]
+          (sort-by (fn [h] [(get h :block/priority "Z") (get h :block/created-at)]) result))
+      :inputs [:today]
+      :collapsed? false},   
    
-       {:title [:h4 "⏰ Today"]
+   
+{:title [:h4 "⏰ Today"]
       :query [:find (pull ?block [*])
               :in $ ?day
               :where
@@ -162,6 +184,7 @@
           (sort-by (fn [h] [(get h :block/priority "Z") (get h :block/created-at)]) result))
       :inputs [:today]
       :collapsed? false},   
+
    
     {:title [:h4 "☀️ Tomorrow"]
       :query [:find (pull ?block [*])
@@ -171,7 +194,7 @@
               (or
                 [?block :block/scheduled ?d]
                 [?block :block/deadline ?d])
-              [(contains? #{"NOW" "TODO" "LATER" "DOING" "WAITING"} ?marker)]
+              [(contains? #{"LATER"} ?marker)]
               [(= ?d ?day)]]
       :result-transform
         (fn [result]
@@ -179,35 +202,6 @@
       :inputs [:1d-after]
       :collapsed? false},
    
-   
-    {:title [:h4 "🍿 Watch"]
-      :query [:find (pull ?b [*])
-            :where
-            (or [?b :block/priority "A"] [?b :block/priority "B"] [?b :block/priority "C"])
-            [?b :block/marker ?marker]
-            [?b :block/ref-pages ?p]
-            (or [?p :block/name "movie"] [?p :block/name "video"] [?p :block/name "watch"])
-            (not [?b :block/scheduled ?d])
-            (not [?b :block/deadline ?d])
-            [(contains? #{"NOW" "TODO" "LATER" "DOING" "WAITING"} ?marker)]]
-    :result-transform
-        (fn [result]
-          (sort-by (fn [h] [(get h :block/priority "Z") (get h :block/created-at)]) result))
-    :collapsed? true},
- {:title [:h4 "📖 Read"]
-      :query [:find (pull ?b [*])
-            :where
-            (or [?b :block/priority "A"] [?b :block/priority "B"] [?b :block/priority "C"])
-            [?b :block/marker ?marker]
-            [?b :block/ref-pages ?p]
-            (or [?p :block/name "text"] [?p :block/name "book"] [?p :block/name "read"])
-            (not [?b :block/scheduled ?d])
-            (not [?b :block/deadline ?d])
-            [(contains? #{"NOW" "TODO" "LATER" "DOING" "WAITING"} ?marker)]]
-    :result-transform
-        (fn [result]
-          (sort-by (fn [h] [(get h :block/priority "Z") (get h :block/created-at)]) result))
-    :collapsed? true},
    
     {:title [:h4 "📆 Sooner"]
       :query [:find (pull ?block [*])
@@ -225,6 +219,8 @@
                             (or (get h :block/scheduled) (get h :block/deadline))) result))
       :inputs [:1d-after :7d-after]
       :collapsed? true},
+  
+  
     {:title [:h4 "📅 Later"]
       :query [:find (pull ?block [*])
               :in $ ?start ?next
@@ -240,14 +236,72 @@
                 (sort-by (fn [h]
                             (or (get h :block/scheduled) (get h :block/deadline))) result))
       :inputs [:6d-after :90d-after]
-      :collapsed? true}   
+      :collapsed? true},
+   
+    {:title [:h4 "📝 Draft"]
+      :query [:find (pull ?b [*])
+            :where
+            (or [?b :block/priority "A"] [?b :block/priority "B"] [?b :block/priority "C"])
+            [?b :block/marker ?marker]
+            [?b :block/ref-pages ?p]
+            [?p :block/name "life/notes/drafts 📝"]
+            (not [?b :block/scheduled ?d])
+            (not [?b :block/deadline ?d])
+            [(contains? #{"NOW" "TODO" "LATER" "DOING" "WAITING"} ?marker)]]
+    :result-transform
+        (fn [result]
+          (sort-by (fn [h] [(get h :block/priority "Z") (get h :block/created-at)]) result))
+    :breadcrumb-show? false,
+     :collapsed? true},
+   
+    {:title [:h4 "🍿 Watch"]
+      :query [:find (pull ?b [*])
+            :where
+            (or [?b :block/priority "A"] [?b :block/priority "B"] [?b :block/priority "C"])
+            [?b :block/marker ?marker]
+            [?b :block/ref-pages ?p]
+            (or [?p :block/name "movie"] [?p :block/name "video"] [?p :block/name "watch"])
+            (not [?b :block/scheduled ?d])
+            (not [?b :block/deadline ?d])
+            [(contains? #{"NOW" "TODO" "LATER" "DOING" "WAITING"} ?marker)]]
+    :result-transform
+        (fn [result]
+          (sort-by (fn [h] [(get h :block/priority "Z") (get h :block/created-at)]) result))
+    :breadcrumb-show? false,
+
+     :collapsed? true},
+ {:title [:h4 "📖 Read"]
+      :query [:find (pull ?b [*])
+            :where
+            (or [?b :block/priority "A"] [?b :block/priority "B"] [?b :block/priority "C"])
+            [?b :block/marker ?marker]
+            [?b :block/ref-pages ?p]
+            (or [?p :block/name "text"] [?p :block/name "book"] [?p :block/name "read"])
+            (not [?b :block/scheduled ?d])
+            (not [?b :block/deadline ?d])
+            [(contains? #{"NOW" "TODO" "LATER" "DOING" "WAITING"} ?marker)]]
+    :result-transform
+        (fn [result]
+          (sort-by (fn [h] [(get h :block/priority "Z") (get h :block/created-at)]) result))
+    :breadcrumb-show? false,  
+  :collapsed? true},
+   
            
     ]}
+
 
  ;; Add your own commands to speedup.
  ;; E.g. [["js" "Javascript"]]
  :commands
- []
+ [
+ 	["idea" "#[[life/business/ideas 💡]]"], 
+    ["question" "#[[life/notes/question]]"],
+ 	["emotions" "#[[life/notes/emotions]]"], 	
+ 	["intriguing" "#[[life/notes/intriguing]]"],
+ 	["gratitude" "#[[life/notes/gratitude]]"],
+    ["challenge", "#[[life/health/mental/challenge]]"],
+	["reflection" "#[[life/notes/reflection]]"]  
+  ]
 
  ;; By default, a block can only be collapsed if it has some children.
  ;; `:outliner/block-title-collapse-enabled? true` enables a block with a title
@@ -277,7 +331,7 @@
  :ref/default-open-blocks-level 2
 
  :ref/linked-references-collapsed-threshold 10
- :favorites ["hqa" "may 3rd, 2022"]
+ :favorites []
  :ui/show-brackets? false
 
  ;; any number between 0 and 1 (the greater it is the faster the changes of the next-interval of card reviews) (default 0.5)
